@@ -18,6 +18,10 @@
 #define VGA_STATUS_REG	0x03DA
 #define IOP_FF0A	0xFF0A
 
+#define IMAGE_WIDTH	640UL
+#define IMAGE_HEIGHT	480UL
+#define IMAGE_SIZE	(IMAGE_WIDTH * IMAGE_HEIGHT)
+
 static char far *const VRAM_WIN = (void far *)0xC0000000UL;
 
 void attr_write(unsigned char index, unsigned char value) {
@@ -53,6 +57,19 @@ void vga_exit() {
 	(void)outpw(VGA_GR_REG, 0x0506);
 }
 
+static void restore_system_state(union REGS *regs) {
+	(void)outpw(VGA_SEQ_REG, 0x0106);
+	(void)outpw(VGA_SEQ_REG, 0x3f08);
+	(void)outpw(VGA_SEQ_REG, 0x0006);
+	vga_exit();
+
+	regs->w.ax = 0x1BCA;
+	(void)int86(0x91, regs, regs);
+
+	regs->w.ax = 0x0B00;
+	(void)int86(0x91, regs, regs);
+}
+
 int main(int argc, char *argv[]) {
 	union REGS regs;
 	FILE *pal, *img;
@@ -63,6 +80,10 @@ int main(int argc, char *argv[]) {
 	unsigned char pixel;
 	const char *image_path;
 	const char *palette_path;
+	unsigned long remaining;
+	unsigned int chunk_size;
+	unsigned int window_index;
+	unsigned int bytes_read;
 
 	if (argc < 3) {
 		printf("usage: %s <image file> <palette file>\n", argv[0]);
@@ -96,6 +117,8 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
+	remaining = IMAGE_SIZE;
+
 
 	// system row erase
 	regs.w.ax = 0x1B8A;
@@ -125,36 +148,28 @@ int main(int argc, char *argv[]) {
 		(void)outpw(VGA_SEQ_REG, 0x0106);
 		(void)outpw(VGA_SEQ_REG, 0x0108 | j << 12);
 		(void)outpw(VGA_SEQ_REG, 0x0006);
-		for (k = 0; k < 4;k++){
-			(void)outpw(IOP_FF0A, 0x40 * (k>>1));
-			if (fread(pic, 1, 0x8000, img) != 0x8000) {
+		for (k = 0; k < 4 && remaining > 0;k++){
+			window_index = k >> 1;
+			(void)outpw(IOP_FF0A, 0x40 * window_index);
+			chunk_size = remaining > 0x8000UL ? 0x8000U : (unsigned int)remaining;
+			bytes_read = (unsigned int)fread(pic, 1, chunk_size, img);
+			if (bytes_read != chunk_size) {
 				printf("image read failed");
 				fclose(img);
 				free(pic);
+				restore_system_state(&regs);
 				return -1;
 			}
-			for (i = 0; i < 0x8000;i++) {
+			for (i = 0; i < chunk_size;i++) {
 				VRAM_WIN[k*0x8000+i] = pic[i];
 			}
+			remaining -= chunk_size;
 		}
 	}
 	fclose(img);
 
     (void)getch();
 
-    // restore VGA mode
-	(void)outpw(VGA_SEQ_REG, 0x0106);
-	(void)outpw(VGA_SEQ_REG, 0x0f08 | j << 12);
-	(void)outpw(VGA_SEQ_REG, 0x0006);
-
-	vga_exit();
-
-	// system row disp
-	regs.w.ax = 0x1BCA;
-	(void)int86(0x91, &regs, &regs);
-
-	// cursor disp
-	regs.w.ax = 0x0B00;
-	(void)int86(0x91, &regs, &regs);
+	restore_system_state(&regs);
     return 0;
 }
