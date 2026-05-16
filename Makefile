@@ -1,7 +1,7 @@
 CL=	wcl
 CLFLAGS= -bt=dos -mc
 #WATCOM= /path/to/watcom
-INCLUDES= -i=$(WATCOM)\
+INCLUDES= -i=$(WATCOM)\h
 
 all: main.exe rmalpha.exe
 
