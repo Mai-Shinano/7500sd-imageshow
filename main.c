@@ -53,7 +53,7 @@ void vga_exit() {
 	(void)outpw(VGA_GR_REG, 0x0506);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
 	union REGS regs;
 	FILE *pal, *img;
 	unsigned int i,j,k,voffset,vseg;
@@ -61,6 +61,16 @@ int main() {
 	unsigned char pallete[768]={0};
 	unsigned char __far *pic;
 	unsigned char pixel;
+	const char *image_path;
+	const char *palette_path;
+
+	if (argc < 3) {
+		printf("usage: %s <image file> <palette file>\n", argv[0]);
+		return -1;
+	}
+
+	image_path = argv[1];
+	palette_path = argv[2];
 
 	pic = malloc(0x8000);
 	if(pic == 0){
@@ -68,15 +78,19 @@ int main() {
 		return -1;
 	}
 
-    pal = fopen("pallete.bin", "rb");
+	pal = fopen(palette_path, "rb");
 	if(pal==NULL){
-		printf("pallete open failed");
+		printf("palette open failed");
 		return -1;
 	}
-	fread(pallete, 1, 768, pal);
-    fclose(pal);
+	if (fread(pallete, 1, 768, pal) != 768) {
+		printf("palette read failed");
+		fclose(pal);
+		return -1;
+	}
+	fclose(pal);
 
-	img = fopen("pic.bin", "rb");
+	img = fopen(image_path, "rb");
 	if(img==NULL){
 		printf("image open failed");
 		return -1;
@@ -113,7 +127,12 @@ int main() {
 		(void)outpw(VGA_SEQ_REG, 0x0006);
 		for (k = 0; k < 4;k++){
 			(void)outpw(IOP_FF0A, 0x40 * (k>>1));
-			fread(pic, 1, 0x8000, img);
+			if (fread(pic, 1, 0x8000, img) != 0x8000) {
+				printf("image read failed");
+				fclose(img);
+				free(pic);
+				return -1;
+			}
 			for (i = 0; i < 0x8000;i++) {
 				VRAM_WIN[k*0x8000+i] = pic[i];
 			}
